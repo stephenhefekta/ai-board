@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Board</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+
+    /* Markdown prose */
+    .prose { max-width: none; line-height: 1.65; }
+    .prose p  { margin-bottom: 0.6rem; }
+    .prose ul, .prose ol { margin: 0.4rem 0 0.6rem 1.4rem; }
+    .prose li { margin-bottom: 0.2rem; }
+    .prose h1,.prose h2,.prose h3 { font-weight: 600; margin: 0.8rem 0 0.4rem; }
+    .prose code { background: rgba(0,0,0,0.07); padding: 0.12em 0.35em; border-radius: 4px; font-size: 0.85em; font-family: ui-monospace, monospace; }
+    .prose pre  { background: rgba(0,0,0,0.06); padding: 0.85rem; border-radius: 8px; overflow-x: auto; margin: 0.6rem 0; }
+    .prose pre code { background: none; padding: 0; }
+    .prose strong { font-weight: 600; }
+    .prose blockquote { border-left: 3px solid #cbd5e1; padding-left: 0.9rem; color: #64748b; margin: 0.6rem 0; }
+    .prose a { color: #4f46e5; text-decoration: underline; }
+
+    /* Status dots */
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+    .dot-idle    { background: #cbd5e1; }
+    .dot-loading { background: #f59e0b; animation: blink 1.4s ease-in-out infinite; }
+    .dot-done    { background: #10b981; }
+    .dot-error   { background: #ef4444; }
+
+    @keyframes blink {
+      0%,100% { opacity:1; transform:scale(1); }
+      50%      { opacity:.5; transform:scale(.85); }
+    }
+    @keyframes fadeUp {
+      from { opacity:0; transform:translateY(10px); }
+      to   { opacity:1; transform:translateY(0); }
+    }
+    .fade-up { animation: fadeUp .35s ease forwards; }
+
+    /* Cards */
+    .model-card {
+      border-radius: 14px;
+      border: 1px solid #e2e8f0;
+      overflow: hidden;
+      transition: box-shadow .2s;
+    }
+    .model-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.09); }
+
+    .consolidated-wrap {
+      background: linear-gradient(135deg,#eef2ff,#f5f3ff);
+      border: 2px solid #c7d2fe;
+      border-radius: 16px;
+    }
+
+    textarea:focus { outline: none; box-shadow: 0 0 0 3px rgba(99,102,241,.2); }
+    button:disabled { opacity: .6; cursor: not-allowed; }
+  </style>
+</head>
+<body class="bg-slate-50 min-h-screen">
+
+<!-- ── Header ──────────────────────────────────────────────────────── -->
+<header class="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm">
+  <div class="max-w-7xl mx-auto px-5 py-3.5 flex items-center gap-3">
+    <div class="text-2xl select-none">🎯</div>
+    <div>
+      <h1 class="text-lg font-bold text-slate-900 leading-tight">AI Board</h1>
+      <p class="text-xs text-slate-400">Claude · ChatGPT · Gemini · Grok</p>
+    </div>
+    <div class="ml-auto flex items-center gap-2" id="phase-badge" style="display:none!important">
+      <span class="dot dot-loading" id="phase-dot"></span>
+      <span class="text-sm font-medium text-slate-600" id="phase-text"></span>
+    </div>
+  </div>
+</header>
+
+<!-- ── Main ────────────────────────────────────────────────────────── -->
+<main class="max-w-7xl mx-auto px-5 py-8 space-y-10">
+
+  <!-- Question input -->
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+    <label class="block text-sm font-semibold text-slate-700 mb-2">Your question</label>
+    <textarea
+      id="q"
+      rows="3"
+      class="w-full border border-slate-200 rounded-xl p-4 text-slate-800 text-base resize-none transition-all"
+      placeholder="Ask anything… e.g. 'What are the pros and cons of microservices vs monoliths?'"
+    ></textarea>
+    <!-- File attachment row -->
+    <div class="flex items-center gap-3 mt-3">
+      <label class="cursor-pointer flex items-center gap-1.5 text-sm text-slate-500 hover:text-indigo-600 transition-colors select-none">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+        </svg>
+        Attach file
+        <input
+          type="file" id="file-input" class="hidden"
+          accept=".pdf,.txt,.md,.rtf,.png,.jpg,.jpeg,.gif,.webp"
+          onchange="fileSelected(this)"
+        />
+      </label>
+      <div id="file-badge" class="hidden items-center gap-1.5 px-3 py-1 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-full text-xs font-medium">
+        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        </svg>
+        <span id="file-name"></span>
+        <button onclick="clearFile()" class="ml-1 hover:text-red-500 font-bold leading-none">×</button>
+      </div>
+    </div>
+
+    <div class="flex items-center justify-between mt-4">
+      <p class="text-xs text-slate-400">All four models answer, then critique each other, then a consolidated answer is produced.</p>
+      <button
+        id="submit-btn"
+        onclick="askBoard()"
+        class="bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold px-5 py-2.5 rounded-xl transition-colors flex items-center gap-2 text-sm"
+      >
+        Ask the Board
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Round 1: Initial answers -->
+  <section id="sec-initial" class="hidden">
+    <div class="flex items-baseline gap-3 mb-4">
+      <h2 class="text-base font-bold text-slate-800">Initial Answers</h2>
+      <span class="text-xs font-semibold text-slate-400 uppercase tracking-widest">Round 1</span>
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div id="card-claude-initial"  class="model-card min-h-[120px]"></div>
+      <div id="card-chatgpt-initial" class="model-card min-h-[120px]"></div>
+      <div id="card-gemini-initial"  class="model-card min-h-[120px]"></div>
+      <div id="card-grok-initial"    class="model-card min-h-[120px]"></div>
+    </div>
+  </section>
+
+  <!-- Round 2: Discussion -->
+  <section id="sec-discuss" class="hidden">
+    <div class="flex items-baseline gap-3 mb-4">
+      <h2 class="text-base font-bold text-slate-800">Discussion &amp; Critique</h2>
+      <span class="text-xs font-semibold text-slate-400 uppercase tracking-widest">Round 2</span>
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div id="card-claude-critique"  class="model-card min-h-[120px]"></div>
+      <div id="card-chatgpt-critique" class="model-card min-h-[120px]"></div>
+      <div id="card-gemini-critique"  class="model-card min-h-[120px]"></div>
+      <div id="card-grok-critique"    class="model-card min-h-[120px]"></div>
+    </div>
+  </section>
+
+  <!-- Consolidated answer -->
+  <section id="sec-consolidated" class="hidden">
+    <div class="flex items-baseline gap-3 mb-4">
+      <h2 class="text-base font-bold text-slate-800">Consolidated Answer</h2>
+      <span class="text-xs font-semibold text-slate-400 uppercase tracking-widest">Final</span>
+    </div>
+    <div class="consolidated-wrap p-7">
+      <div class="flex items-center gap-2 mb-5">
+        <span class="text-xl">✨</span>
+        <span class="font-semibold text-slate-700">Board Consensus</span>
+      </div>
+      <div id="consolidated-body" class="prose text-slate-700 text-sm"></div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+// ── Model metadata ──────────────────────────────────────────────────
+const MODELS = {
+  claude:  { name:'Claude',  org:'Anthropic', topColor:'#D97706', bg:'#FFFBEB', borderColor:'#FCD34D', text:'#78350F' },
+  chatgpt: { name:'ChatGPT', org:'OpenAI',    topColor:'#059669', bg:'#ECFDF5', borderColor:'#6EE7B7', text:'#064E3B' },
+  gemini:  { name:'Gemini',  org:'Google',    topColor:'#2563EB', bg:'#EFF6FF', borderColor:'#93C5FD', text:'#1E3A8A' },
+  grok:    { name:'Grok',    org:'xAI',       topColor:'#7C3AED', bg:'#F5F3FF', borderColor:'#C4B5FD', text:'#4C1D95' },
+};
+
+// ── Helpers ─────────────────────────────────────────────────────────
+function loadingCard(key) {
+  const m = MODELS[key];
+  return `
+    <div style="border-top:4px solid ${m.topColor}; background:${m.bg}" class="p-4 h-full">
+      <div class="flex items-center justify-between mb-3">
+        <span class="font-semibold text-sm" style="color:${m.text}">${m.name}</span>
+        <span class="text-xs opacity-60" style="color:${m.text}">${m.org}</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="dot dot-loading"></span>
+        <span class="text-xs text-slate-400">Thinking…</span>
+      </div>
+    </div>`;
+}
+
+function contentCard(key, md) {
+  const m = MODELS[key];
+  return `
+    <div style="border-top:4px solid ${m.topColor}; background:${m.bg}" class="p-4 h-full fade-up">
+      <div class="flex items-center justify-between mb-3">
+        <span class="font-semibold text-sm" style="color:${m.text}">${m.name}</span>
+        <div class="flex items-center gap-1.5">
+          <span class="dot dot-done"></span>
+          <span class="text-xs opacity-60" style="color:${m.text}">${m.org}</span>
+        </div>
+      </div>
+      <div class="prose text-xs text-slate-700">${marked.parse(md)}</div>
+    </div>`;
+}
+
+function errorCard(key, msg) {
+  const m = MODELS[key];
+  return `
+    <div style="border-top:4px solid #ef4444; background:#fff1f2" class="p-4 h-full fade-up">
+      <div class="flex items-center justify-between mb-3">
+        <span class="font-semibold text-sm text-red-700">${m.name}</span>
+        <span class="dot dot-error"></span>
+      </div>
+      <p class="text-xs text-red-600">${msg}</p>
+    </div>`;
+}
+
+function setPhase(phase, msg) {
+  const badge = document.getElementById('phase-badge');
+  const dot   = document.getElementById('phase-dot');
+  const text  = document.getElementById('phase-text');
+  badge.style.display = 'flex';
+  text.textContent = msg;
+  if (phase === 'done') {
+    dot.className = 'dot dot-done';
+  } else {
+    dot.className = 'dot dot-loading';
+  }
+}
+
+function show(id) {
+  document.getElementById(id).classList.remove('hidden');
+}
+
+// ── File helpers ─────────────────────────────────────────────────────
+function fileSelected(input) {
+  const file = input.files[0];
+  if (!file) return;
+  document.getElementById('file-name').textContent = file.name;
+  document.getElementById('file-badge').classList.remove('hidden');
+  document.getElementById('file-badge').classList.add('flex');
+}
+
+function clearFile() {
+  document.getElementById('file-input').value = '';
+  document.getElementById('file-badge').classList.add('hidden');
+  document.getElementById('file-badge').classList.remove('flex');
+}
+
+// ── Main logic ──────────────────────────────────────────────────────
+async function askBoard() {
+  const qEl  = document.getElementById('q');
+  const btn  = document.getElementById('submit-btn');
+  const question = qEl.value.trim();
+  if (!question) { qEl.focus(); return; }
+
+  // Reset UI
+  btn.disabled = true;
+  btn.textContent = 'Processing…';
+  document.getElementById('phase-badge').style.display = 'flex';
+
+  ['sec-initial','sec-discuss','sec-consolidated'].forEach(id =>
+    document.getElementById(id).classList.add('hidden')
+  );
+
+  // Pre-populate loading cards for round 1
+  show('sec-initial');
+  for (const key of Object.keys(MODELS)) {
+    document.getElementById(`card-${key}-initial`).innerHTML  = loadingCard(key);
+    document.getElementById(`card-${key}-critique`).innerHTML = '';
+  }
+  document.getElementById('consolidated-body').innerHTML = '';
+
+  try {
+    const formData = new FormData();
+    formData.append('question', question);
+    const fileInput = document.getElementById('file-input');
+    if (fileInput.files[0]) formData.append('file', fileInput.files[0]);
+
+    const resp = await fetch('/api/ask', { method: 'POST', body: formData });
+
+    if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
+
+    const reader  = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop(); // keep incomplete tail
+
+      for (const part of parts) {
+        if (!part.trim()) continue;
+
+        // Parse SSE event + data
+        let eventName = null, dataStr = null;
+        for (const line of part.split('\n')) {
+          if (line.startsWith('event: ')) eventName = line.slice(7).trim();
+          else if (line.startsWith('data: '))  dataStr  = line.slice(6).trim();
+        }
+        if (!eventName || !dataStr) continue;
+
+        let data;
+        try { data = JSON.parse(dataStr); } catch { continue; }
+
+        switch (eventName) {
+          case 'phase':
+            setPhase(data.phase, data.message);
+            if (data.phase === 'discussion') {
+              show('sec-discuss');
+              for (const key of Object.keys(MODELS))
+                document.getElementById(`card-${key}-critique`).innerHTML = loadingCard(key);
+            }
+            if (data.phase === 'consolidation') {
+              show('sec-consolidated');
+              document.getElementById('consolidated-body').innerHTML =
+                '<div class="flex items-center gap-2 text-slate-400 text-sm"><span class="dot dot-loading"></span> Synthesising…</div>';
+            }
+            break;
+
+          case 'model_answer': {
+            const content = data.answer.startsWith('[Error:')
+              ? errorCard(data.model, data.answer)
+              : contentCard(data.model, data.answer);
+            document.getElementById(`card-${data.model}-initial`).innerHTML = content;
+            break;
+          }
+
+          case 'model_critique': {
+            const content = data.critique.startsWith('[Error:')
+              ? errorCard(data.model, data.critique)
+              : contentCard(data.model, data.critique);
+            document.getElementById(`card-${data.model}-critique`).innerHTML = content;
+            break;
+          }
+
+          case 'consolidated':
+            document.getElementById('consolidated-body').innerHTML =
+              marked.parse(data.answer);
+            break;
+
+          case 'done':
+            setPhase('done', 'Complete ✓');
+            btn.disabled = false;
+            btn.innerHTML = `Ask Again
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/>
+              </svg>`;
+            break;
+
+          case 'file_info':
+            setPhase('processing', `Processing: ${data.filename}`);
+            break;
+
+          case 'error':
+            console.error('Server error:', data.message);
+            break;
+        }
+      }
+    }
+
+  } catch (err) {
+    console.error(err);
+    btn.disabled = false;
+    btn.textContent = 'Ask the Board';
+    setPhase('error', 'Error — see console');
+    alert(`Something went wrong: ${err.message}`);
+  }
+}
+
+// Cmd/Ctrl+Enter to submit
+document.getElementById('q').addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') askBoard();
+});
+
+marked.setOptions({ breaks: true, gfm: true });
+</script>
+</body>
+</html>

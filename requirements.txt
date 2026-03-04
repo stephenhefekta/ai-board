@@ -1,0 +1,10 @@
+fastapi>=0.110.0
+uvicorn>=0.27.0
+anthropic>=0.40.0
+openai>=1.30.0
+google-genai>=1.0.0
+python-dotenv>=1.0.0
+pypdf>=4.0.0
+python-multipart>=0.0.7
+pywebview>=5.0
+pyinstaller>=6.0
