@@ -2,19 +2,56 @@ import asyncio
 import io
 import json
 import os
-from typing import List, Optional, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, File, Form, UploadFile
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from clients import Attachment, MODELS, MODEL_DISPLAY, call_claude, call_openai
 
 app = FastAPI(title="AI Board")
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# ── History (persisted to disk, survives app restarts) ───────────────
+HISTORY_FILE = Path.home() / 'ai-board' / 'history.json'
+MAX_SESSIONS = 100
+
+def _read_history() -> List[Dict]:
+    if HISTORY_FILE.exists():
+        try:
+            return json.loads(HISTORY_FILE.read_text())
+        except Exception:
+            pass
+    return []
+
+def _write_history(sessions: List[Dict]):
+    HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    HISTORY_FILE.write_text(json.dumps(sessions))
+
+@app.get("/api/history")
+async def get_history():
+    return JSONResponse(_read_history())
+
+@app.post("/api/history")
+async def save_session(request: Request):
+    session = await request.json()
+    sessions = _read_history()
+    sessions.insert(0, session)
+    if len(sessions) > MAX_SESSIONS:
+        sessions = sessions[:MAX_SESSIONS]
+    _write_history(sessions)
+    return JSONResponse({"ok": True})
+
+@app.delete("/api/history/{session_id}")
+async def delete_session(session_id: str):
+    sessions = [s for s in _read_history() if s.get("id") != session_id]
+    _write_history(sessions)
+    return JSONResponse({"ok": True})
 
 IMAGE_MIME_TYPES = {
     "image/png", "image/jpeg", "image/gif", "image/webp",

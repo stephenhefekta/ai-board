@@ -566,13 +566,10 @@ document.getElementById('q').addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') askBoard();
 });
 
-// ── History ──────────────────────────────────────────────────────────
-const HISTORY_KEY = 'aiboard_history';
-const MAX_SESSIONS = 100;
+// ── History (file-backed via API, persists across app restarts) ──────
 
-function saveSession() {
+async function saveSession() {
   if (!currentQuestion) return;
-  const sessions = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
   const session = {
     id: String(Date.now()),
     timestamp: Date.now(),
@@ -582,15 +579,18 @@ function saveSession() {
     critiques: { ...critiques },
     consolidatedMd,
   };
-  sessions.unshift(session);
-  if (sessions.length > MAX_SESSIONS) sessions.splice(MAX_SESSIONS);
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(sessions));
   currentActiveId = session.id;
+  await fetch('/api/history', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(session),
+  });
   renderHistory(session.id);
 }
 
-function renderHistory(activeId) {
-  const sessions = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+async function renderHistory(activeId) {
+  let sessions = [];
+  try { sessions = await fetch('/api/history').then(r => r.json()); } catch {}
   const list = document.getElementById('history-list');
   if (!sessions.length) {
     list.innerHTML = '<p style="color:#6d6aaa;font-size:12px;padding:16px 14px;">No history yet</p>';
@@ -620,8 +620,9 @@ function renderHistory(activeId) {
   list.innerHTML = html;
 }
 
-function restoreSession(id) {
-  const sessions = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+async function restoreSession(id) {
+  let sessions = [];
+  try { sessions = await fetch('/api/history').then(r => r.json()); } catch {}
   const s = sessions.find(x => x.id === id);
   if (!s) return;
   currentActiveId = id;
@@ -634,7 +635,6 @@ function restoreSession(id) {
   document.getElementById('q').value = s.question;
   document.getElementById('phase-badge').style.display = 'none';
 
-  // Show file names (read-only, files not available)
   selectedFiles = [];
   const badges = document.getElementById('file-badges');
   badges.innerHTML = (s.fileNames || []).map(name => `
@@ -645,7 +645,6 @@ function restoreSession(id) {
       <span>${name}</span>
     </div>`).join('');
 
-  // Render all sections
   show('sec-initial');
   for (const key of Object.keys(MODELS)) {
     const ans = s.answers[key];
@@ -665,11 +664,8 @@ function restoreSession(id) {
   renderHistory(id);
 }
 
-function deleteSession(id) {
-  const sessions = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
-  const idx = sessions.findIndex(s => s.id === id);
-  if (idx !== -1) sessions.splice(idx, 1);
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(sessions));
+async function deleteSession(id) {
+  await fetch(`/api/history/${id}`, { method: 'DELETE' });
   if (currentActiveId === id) newChat();
   else renderHistory();
 }
