@@ -10,7 +10,6 @@ if getattr(sys, 'frozen', False):
 from dotenv import load_dotenv
 load_dotenv(Path.home() / 'ai-board' / '.env')
 
-import socket
 import threading
 import time
 import urllib.request
@@ -19,10 +18,7 @@ import webview
 from app import app as fastapi_app
 
 
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(('127.0.0.1', 0))
-        return s.getsockname()[1]
+FIXED_PORT = 8765  # Fixed so localStorage history persists across restarts
 
 
 def _run_server(port: int):
@@ -30,7 +26,7 @@ def _run_server(port: int):
 
 
 def main():
-    port = _free_port()
+    port = FIXED_PORT
     threading.Thread(target=_run_server, args=(port,), daemon=True).start()
 
     # Wait up to ~4 s for server to accept connections
