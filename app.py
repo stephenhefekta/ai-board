@@ -2,7 +2,7 @@ import asyncio
 import io
 import json
 import os
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -44,10 +44,10 @@ async def _process_upload(file: UploadFile) -> Attachment:
 
 
 async def _call(
-    model_key: str, fn, prompt: str, att: Optional[Attachment] = None
+    model_key: str, fn, prompt: str, atts: List[Attachment] = []
 ) -> Tuple[str, Optional[str], Optional[str]]:
     try:
-        answer = await fn(prompt, att)
+        answer = await fn(prompt, atts)
         return model_key, answer, None
     except Exception as e:
         return model_key, None, str(e)
@@ -69,7 +69,7 @@ async def root():
 @app.post("/api/ask")
 async def ask(
     question: str = Form(...),
-    file: Optional[UploadFile] = File(None),
+    files: List[UploadFile] = File(default=[]),
 ):
     async def stream():
         q = question.strip()
@@ -80,20 +80,22 @@ async def ask(
         def emit(event: str, data: dict) -> str:
             return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
-        # Process attachment (if any)
-        att: Optional[Attachment] = None
-        if file and file.filename:
-            att = await _process_upload(file)
-            yield emit("file_info", {
-                "filename": att.filename,
-                "kind": "image" if att.is_image else "text",
-            })
+        # Process attachments (if any)
+        atts: List[Attachment] = []
+        for file in files:
+            if file and file.filename:
+                att = await _process_upload(file)
+                atts.append(att)
+                yield emit("file_info", {
+                    "filename": att.filename,
+                    "kind": "image" if att.is_image else "text",
+                })
 
         # ── Round 1: Initial answers ────────────────────────────────────────
         yield emit("phase", {"phase": "initial", "message": "Getting initial answers from all models…"})
 
         tasks = [
-            asyncio.create_task(_call(k, v, q, att))
+            asyncio.create_task(_call(k, v, q, atts))
             for k, v in MODELS.items()
         ]
         answers: dict = {}
@@ -120,12 +122,12 @@ async def ask(
                 "Be specific, honest, and constructive."
             )
 
-        # Pass image attachment to critique round so models can still see it;
+        # Pass image attachments to critique round so models can still see them;
         # for text attachments the content is already embedded in round-1 answers.
-        critique_att = att if (att and att.is_image) else None
+        critique_atts = [a for a in atts if a.is_image]
 
         critique_tasks = [
-            asyncio.create_task(_call(k, v, make_critique_prompt(k), critique_att))
+            asyncio.create_task(_call(k, v, make_critique_prompt(k), critique_atts))
             for k, v in MODELS.items()
         ]
         critiques: dict = {}

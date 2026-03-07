@@ -2,7 +2,7 @@ import asyncio
 import base64
 import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, List
 
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
@@ -31,10 +31,12 @@ class Attachment:
         return self.data.decode('utf-8', errors='replace')
 
 
-def _text_prompt(prompt: str, att: Optional[Attachment]) -> str:
+def _text_prompt(prompt: str, atts: List[Attachment]) -> str:
     """Prepend text-file content to the prompt."""
-    if att and not att.is_image:
-        return f"[Attached file: {att.filename}]\n\n{att.text_content}\n\n---\n\n{prompt}"
+    text_atts = [a for a in atts if not a.is_image]
+    if text_atts:
+        parts = "\n\n".join(f"[Attached file: {a.filename}]\n\n{a.text_content}" for a in text_atts)
+        return f"{parts}\n\n---\n\n{prompt}"
     return prompt
 
 
@@ -60,17 +62,19 @@ MAX_TOKENS = 8192
 
 # --- Callers ---
 
-async def call_claude(prompt: str, att: Optional[Attachment] = None) -> str:
-    if att and att.is_image:
+async def call_claude(prompt: str, atts: List[Attachment] = []) -> str:
+    image_atts = [a for a in atts if a.is_image]
+    full_prompt = _text_prompt(prompt, atts)
+    if image_atts:
         content = [
             {
                 "type": "image",
-                "source": {"type": "base64", "media_type": att.mime_type, "data": att.b64},
-            },
-            {"type": "text", "text": prompt},
-        ]
+                "source": {"type": "base64", "media_type": a.mime_type, "data": a.b64},
+            }
+            for a in image_atts
+        ] + [{"type": "text", "text": full_prompt}]
     else:
-        content = _text_prompt(prompt, att)
+        content = full_prompt
 
     message = await claude_client.messages.create(
         model=CLAUDE_MODEL,
@@ -80,14 +84,16 @@ async def call_claude(prompt: str, att: Optional[Attachment] = None) -> str:
     return message.content[0].text
 
 
-async def call_openai(prompt: str, att: Optional[Attachment] = None) -> str:
-    if att and att.is_image:
+async def call_openai(prompt: str, atts: List[Attachment] = []) -> str:
+    image_atts = [a for a in atts if a.is_image]
+    full_prompt = _text_prompt(prompt, atts)
+    if image_atts:
         content = [
-            {"type": "image_url", "image_url": {"url": f"data:{att.mime_type};base64,{att.b64}"}},
-            {"type": "text", "text": prompt},
-        ]
+            {"type": "image_url", "image_url": {"url": f"data:{a.mime_type};base64,{a.b64}"}}
+            for a in image_atts
+        ] + [{"type": "text", "text": full_prompt}]
     else:
-        content = _text_prompt(prompt, att)
+        content = full_prompt
 
     response = await openai_client.chat.completions.create(
         model=OPENAI_MODEL,
@@ -97,14 +103,16 @@ async def call_openai(prompt: str, att: Optional[Attachment] = None) -> str:
     return response.choices[0].message.content
 
 
-async def call_gemini(prompt: str, att: Optional[Attachment] = None) -> str:
-    if att and att.is_image:
+async def call_gemini(prompt: str, atts: List[Attachment] = []) -> str:
+    image_atts = [a for a in atts if a.is_image]
+    full_prompt = _text_prompt(prompt, atts)
+    if image_atts:
         contents = [
-            genai_types.Part.from_bytes(data=att.data, mime_type=att.mime_type),
-            genai_types.Part.from_text(text=prompt),
-        ]
+            genai_types.Part.from_bytes(data=a.data, mime_type=a.mime_type)
+            for a in image_atts
+        ] + [genai_types.Part.from_text(text=full_prompt)]
     else:
-        contents = _text_prompt(prompt, att)
+        contents = full_prompt
 
     response = await asyncio.to_thread(
         gemini_client.models.generate_content,
@@ -115,14 +123,16 @@ async def call_gemini(prompt: str, att: Optional[Attachment] = None) -> str:
     return response.text
 
 
-async def call_grok(prompt: str, att: Optional[Attachment] = None) -> str:
-    if att and att.is_image:
+async def call_grok(prompt: str, atts: List[Attachment] = []) -> str:
+    image_atts = [a for a in atts if a.is_image]
+    full_prompt = _text_prompt(prompt, atts)
+    if image_atts:
         content = [
-            {"type": "image_url", "image_url": {"url": f"data:{att.mime_type};base64,{att.b64}"}},
-            {"type": "text", "text": prompt},
-        ]
+            {"type": "image_url", "image_url": {"url": f"data:{a.mime_type};base64,{a.b64}"}}
+            for a in image_atts
+        ] + [{"type": "text", "text": full_prompt}]
     else:
-        content = _text_prompt(prompt, att)
+        content = full_prompt
 
     response = await grok_client.chat.completions.create(
         model=GROK_MODEL,
