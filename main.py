@@ -6,9 +6,13 @@ from pathlib import Path
 if getattr(sys, 'frozen', False):
     os.chdir(sys._MEIPASS)
 
-# Load API keys from ~/ai-board/.env before importing app
+# Load API keys from the first config file found. Preferred location is
+# ~/.ai-board/.env; the legacy ~/ai-board/.env path is kept for back-compat.
 from dotenv import load_dotenv
-load_dotenv(Path.home() / 'ai-board' / '.env')
+for _env_path in (Path.home() / '.ai-board' / '.env', Path.home() / 'ai-board' / '.env'):
+    if _env_path.exists():
+        load_dotenv(_env_path)
+        break
 
 import threading
 import time

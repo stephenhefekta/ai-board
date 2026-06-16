@@ -17,3 +17,6 @@ dist/
 
 # macOS
 .DS_Store
+history.json
+.claude/
+.env.example
