@@ -12,7 +12,9 @@ from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from clients import Attachment, MODELS, MODEL_DISPLAY, call_claude, call_openai
+from dotenv import set_key
+
+from clients import Attachment, MODELS, MODEL_DISPLAY, call_claude, call_openai, reload_clients
 
 app = FastAPI(title="AI Board")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -52,6 +54,39 @@ async def delete_session(session_id: str):
     sessions = [s for s in _read_history() if s.get("id") != session_id]
     _write_history(sessions)
     return JSONResponse({"ok": True})
+
+# ── API keys (stored in the same .env file main.py loads) ────────────
+_ENV_CANDIDATES = (Path.home() / '.ai-board' / '.env', Path.home() / 'ai-board' / '.env')
+ENV_PATH = next((p for p in _ENV_CANDIDATES if p.exists()), _ENV_CANDIDATES[0])
+API_KEYS = {
+    "ANTHROPIC_API_KEY": "Claude (Anthropic)",
+    "OPENAI_API_KEY":    "ChatGPT (OpenAI)",
+    "GOOGLE_API_KEY":    "Gemini (Google)",
+    "XAI_API_KEY":       "Grok (xAI)",
+}
+
+@app.get("/api/keys")
+async def get_keys():
+    # Never return the keys themselves — just whether each is set and its last 4 chars.
+    out = []
+    for name, label in API_KEYS.items():
+        v = os.environ.get(name, "")
+        out.append({"name": name, "label": label, "set": bool(v), "hint": v[-4:] if len(v) >= 8 else ""})
+    return JSONResponse(out)
+
+@app.post("/api/keys")
+async def update_keys(request: Request):
+    body = await request.json()
+    updates = {k: str(v).strip() for k, v in body.items() if k in API_KEYS and str(v).strip()}
+    if updates:
+        ENV_PATH.parent.mkdir(parents=True, exist_ok=True)
+        ENV_PATH.touch(exist_ok=True)
+        for k, v in updates.items():
+            set_key(str(ENV_PATH), k, v)
+            os.environ[k] = v
+        ENV_PATH.chmod(0o600)
+        reload_clients()
+    return JSONResponse({"ok": True, "updated": list(updates)})
 
 IMAGE_MIME_TYPES = {
     "image/png", "image/jpeg", "image/gif", "image/webp",

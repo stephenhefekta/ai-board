@@ -42,13 +42,19 @@ def _text_prompt(prompt: str, atts: List[Attachment]) -> str:
 
 # --- Clients ---
 
-claude_client = AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
-openai_client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
-grok_client = AsyncOpenAI(
-    api_key=os.environ.get("XAI_API_KEY", ""),
-    base_url="https://api.x.ai/v1",
-)
-gemini_client = google_genai.Client(api_key=os.environ.get("GOOGLE_API_KEY", ""))
+def reload_clients():
+    """(Re)build the API clients from the current environment, e.g. after a key change."""
+    global claude_client, openai_client, grok_client, gemini_client
+    claude_client = AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+    openai_client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
+    grok_client = AsyncOpenAI(
+        api_key=os.environ.get("XAI_API_KEY", ""),
+        base_url="https://api.x.ai/v1",
+    )
+    gemini_client = google_genai.Client(api_key=os.environ.get("GOOGLE_API_KEY", ""))
+
+
+reload_clients()
 
 # --- Model names (overridable via env) ---
 
